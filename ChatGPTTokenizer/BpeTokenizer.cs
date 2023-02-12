@@ -154,21 +154,30 @@ namespace ChatGPTTokenizer {
 
         static IEnumerable<NativeString> GetLines(IntPtr mergesPtr, int mergesLength) {
             while (mergesLength > 0) {
-                int lineLength = FindNewLine(mergesPtr, mergesLength);
-                yield return new NativeString(mergesPtr, lineLength);
-                lineLength++;
+                var line = FindNewLine(mergesPtr, mergesLength, out int skipChars);
+                yield return line;
+                int lineLength = line.Length + skipChars;
                 mergesPtr += lineLength * sizeof(char);
                 mergesLength -= lineLength;
             }
 
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            unsafe static int FindNewLine(IntPtr ptr, int length) {
+            unsafe static NativeString FindNewLine(IntPtr ptr, int length, out int skipChars) {
                 var p = (char*)ptr;
                 for (int i = 0; i < length; i++) {
-                    if (p[i] == '\n') return i;
+                    if (p[i] == '\n') {
+                        skipChars = 1;
+                        return new NativeString(ptr, i);
+                    }
+                    if (p[i] == '\r' && i + 1 < length && p[i + 1] == '\n') {
+                        skipChars = 2;
+                        return new NativeString(ptr, i);
+                    }
                 }
-                return length;
+
+                skipChars = 0;
+                return new NativeString(ptr, length);
             }
         }
 
