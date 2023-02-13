@@ -16,13 +16,14 @@ namespace ChatGPTTokenizer {
         private readonly int length;
         private readonly Dictionary<(NativeString, NativeString), int> mergesDict;
         private readonly Vocab vocab;
-        private readonly Dictionary<string, Token[]> cache = new();
+        private readonly StringKeyedDictionary<Token[]> cache;
 
         public BpeTokenizer(string mergesText) {
             buffer = Marshal.StringToHGlobalUni(mergesText);
             length = mergesText.Length;
             mergesDict = new Dictionary<(NativeString, NativeString), int>(55000);
             vocab = new Vocab(mergesText.Length + 256, 55000);
+            cache = new StringKeyedDictionary<Token[]>(55000);
 
             Init();
         }
@@ -36,13 +37,8 @@ namespace ChatGPTTokenizer {
 
         [SkipLocalsInit]
         unsafe private Token[] Bpe(ReadOnlySpan<char> token, int index) {
-            string? tokenString = null;
             bool useCache = CacheRegex().IsMatch(token);
-            if (useCache) {
-                tokenString = token.ToString();
-            }
-
-            if (useCache && cache.TryGetValue(tokenString!, out Token[]? result)) {
+            if (useCache && cache.TryGetValue(token, out Token[]? result)) {
                 return result;
             }
 
@@ -51,8 +47,8 @@ namespace ChatGPTTokenizer {
             if (status == OperationStatus.Done) {
                 utf8Bytes = utf8Bytes[..bytesWritten];
             } else {
-                tokenString ??= token.ToString();
-                utf8Bytes = Encoding.UTF8.GetBytes(tokenString);
+                utf8Bytes = new byte[Encoding.UTF8.GetByteCount(token)];
+                Encoding.UTF8.GetBytes(token, utf8Bytes);
             }
 
             char* buffer = stackalloc char[utf8Bytes.Length];
@@ -63,7 +59,7 @@ namespace ChatGPTTokenizer {
             }
 
             result = Bpe(buffer, utf8Bytes.Length, index);
-            if (useCache) cache.Add(tokenString!, result);
+            if (useCache) cache.Add(token, result);
             return result;
         }
 
@@ -124,16 +120,20 @@ namespace ChatGPTTokenizer {
 
 
 
-        unsafe public Token[] Encode(string text) {
+        unsafe public Token[] Encode(ReadOnlySpan<char> text) {
             var result = new List<Token>();
-            foreach (Match m in WordRegex().Matches(text).Cast<Match>()) {
-                result.AddRange(Bpe(m.ValueSpan, m.Index));
+            foreach (var m in WordRegex().EnumerateMatches(text)) {
+                result.AddRange(Bpe(text.Slice(m.Index, m.Length), m.Index));
             }
             return result.ToArray();
         }
 
 
         private void Dispose(bool disposing) {
+            if (disposing) {
+                vocab.Dispose();
+                cache.Dispose();
+            }
             Marshal.FreeHGlobal(buffer);
         }
 
