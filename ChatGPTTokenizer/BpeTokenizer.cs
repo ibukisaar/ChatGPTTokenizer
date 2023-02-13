@@ -23,7 +23,7 @@ namespace ChatGPTTokenizer {
             length = mergesText.Length;
             mergesDict = new Dictionary<(NativeString, NativeString), int>(55000);
             vocab = new Vocab(mergesText.Length + 256, 55000);
-            cache = new StringKeyedDictionary<Token[]>(55000);
+            cache = new StringKeyedDictionary<Token[]>(1000);
 
             Init();
         }
